@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  This template deploys a VPC, public and private subnets in us-east1 or us-west-2. It deploys an internet gateway, with a default
+  route on the public subnets. It deploys one Linux t2.micro instance in public subnet with Security Group and NetworkAcl with ssh access. 
+  In addition it deploys another Linux t2.micro instance in private subnet. 
+
+Parameters:
+  SSHKeyPublicEC2:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the public instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  SSHKeyPrivateEC2:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the private instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+Mappings:
+  RegionMap:
+    us-east-1:
+     "AMI": "ami-09d3b3274b6c5d4aa"
+    us-west-2:
+     "AMI": "ami-0518bb0e75d3619ca"
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: SimpleProjectVPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SimpleProjectIGW
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1a
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: SimpleProjectPublicSubnet
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: us-east-1b
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: SimpleProjectPrivateSubnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: SimpleProjectPublicRT
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+      
+  PublicSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable ssh access from your IP address
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 10.0.0.0/16
+      Tags:
+       - Key: Name
+         Value: SimpleProjectPublicSG 
+      VpcId: !Ref VPC 
+
+  PrivateSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: Enable ssh access only from VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 10.0.0.0/16
+      Tags:
+       - Key: Name
+         Value: SimpleProjectPrivateSG 
+      VpcId: !Ref VPC 
+
+  PublicEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      InstanceType: t2.micro
+      SubnetId: !Ref PublicSubnet
+      KeyName: !Ref SSHKeyPublicEC2
+      SecurityGroupIds: 
+        - !Ref PublicSecurityGroup
+      Tags:
+       - Key: Name
+         Value: SimpleProjectPublicEC2 
+
+  PrivateEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
+      InstanceType: t2.micro
+      SubnetId: !Ref PrivateSubnet
+      KeyName: !Ref SSHKeyPrivateEC2
+      SecurityGroupIds: 
+        - !Ref PrivateSecurityGroup
+      Tags:
+       - Key: Name
+         Value: SimpleProjectPrivateEC2 
+
+  PublicNACL: 
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+       VpcId: !Ref VPC
+       Tags:
+       - Key: Name
+         Value: NACLforPublicSubnet
+
+  PublicNACLAssociation:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      NetworkAclId: !Ref PublicNACL
+
+  PublicInboundRule1:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+       NetworkAclId: !Ref PublicNACL
+       RuleNumber: '200'
+       Protocol: '6'
+       RuleAction: allow
+       CidrBlock: !Ref SSHLocation
+       PortRange:
+         From: '22'
+         To: '22'
+
+  PublicInboundRule2:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties: 
+       NetworkAclId: !Ref PublicNACL
+       RuleNumber: '210'
+       Protocol: '-1'
+       RuleAction: allow
+       CidrBlock: 10.0.0.0/16
+       PortRange:
+         From: '22'
+         To: '22'
+
+  PublicOutboundRule:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+       NetworkAclId: !Ref PublicNACL
+       RuleNumber: '300'
+       Protocol: '-1'
+       Egress: true
+       RuleAction: allow
+       CidrBlock: 0.0.0.0/0
+  
+Outputs:
+  PublicIp:
+    Description: Public IP of the first EC2 instance, ssh -i <key> ec2-user@<ip>.compute-1.amazonaws.com
+    Value: !GetAtt PublicEC2Instance.PublicIp
+  PrivateIp:
+    Description: Private IP of the first EC2 instance
+    Value: !GetAtt PrivateEC2Instance.PrivateIp
