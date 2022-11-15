@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description:  This template deploys a VPC, public and private subnets in us-east1 or us-west-2. It deploys an internet gateway, with a default
-  route on the public subnets. It deploys one Linux t2.micro instance in public subnet with Security Group and NetworkAcl with ssh access. 
+Description:  This template deploys a VPC, public and private subnets in us-east1. It deploys an internet gateway, with a default
+  route to the public subnet. It deploys one Linux t2.micro instance in public subnet with Security Group and NetworkAcl with ssh access. 
   In addition it deploys another Linux t2.micro instance in private subnet. 
 
 Parameters:
@@ -25,8 +25,6 @@ Mappings:
   RegionMap:
     us-east-1:
      "AMI": "ami-09d3b3274b6c5d4aa"
-    us-west-2:
-     "AMI": "ami-0518bb0e75d3619ca"
 
 Resources:
   VPC:
